@@ -423,6 +423,7 @@ class GenerateImageForm(BaseModel):
     size: Optional[str] = None
     n: int = 1
     negative_prompt: Optional[str] = None
+    workflow: Optional[dict] = None
 
 
 def load_b64_image_data(b64_str):
@@ -472,6 +473,16 @@ def upload_image(request, image_data, content_type, metadata, user):
     file_item = upload_file(request, file, metadata=metadata, internal=True, user=user)
     url = request.app.url_path_for("get_file_content_by_id", id=file_item.id)
     return url
+
+
+def update_dict(original: dict, updates: dict) -> dict:
+    for key, value in updates.items():
+        if key in original:
+            if isinstance(value, dict) and isinstance(original[key], dict):
+                update_dict(original[key], value)
+            else:
+                original[key] = value
+    return original
 
 
 @router.post("/generations")
@@ -590,6 +601,8 @@ async def image_generations(
                 "n": form_data.n,
             }
 
+            workflow_nodes = form_data.workflow if form_data.workflow else {}
+
             if request.app.state.config.IMAGE_STEPS is not None:
                 data["steps"] = request.app.state.config.IMAGE_STEPS
 
@@ -607,6 +620,20 @@ async def image_generations(
                     **data,
                 }
             )
+
+            workflow_obj = json.loads(form_data.workflow.workflow)
+
+            # log.log(logging.INFO, f'Original workflow: {form_data.workflow.workflow}')
+            # log.log(logging.INFO, f'Workflow update: {workflow_nodes}')
+
+            # update the workflow with the provided nodes
+            workflow_updated = update_dict(workflow_obj, workflow_nodes)
+
+            # update
+            res_workflow = json.dumps(workflow_updated)
+            # log.log(logging.INFO, f'Workflow updated: {res_workflow}')
+            form_data.workflow.workflow = res_workflow
+
             res = await comfyui_generate_image(
                 request.app.state.config.IMAGE_GENERATION_MODEL,
                 form_data,
